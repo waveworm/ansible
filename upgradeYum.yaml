@@ -1,6 +1,6 @@
 ---
 - name: Upgrade all packages on CentOS/RHEL
-  hosts: your_target_host
+  hosts: all
   become: yes
   tasks:
     - name: Upgrade all packages
