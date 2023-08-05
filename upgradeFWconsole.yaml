@@ -1,0 +1,9 @@
+---
+- name: Run fwconsole ma updateall on all machines
+  hosts: all
+  become: yes
+  tasks:
+    - name: Execute fwconsole command to update all modules
+      command: fwconsole ma updateall
+      args:
+        warn: false
