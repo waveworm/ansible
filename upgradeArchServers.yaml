@@ -1,10 +1,9 @@
 ---
 - name: Upgrade Arch Linux
   hosts: arch_server
-  become: yes
   tasks:
     - name: Remount root filesystem as read-write
-      command: mount -o remount,rw /
+      command: rw /
       when: ansible_os_family == 'Archlinux'
 
     - name: Update the package list
@@ -24,5 +23,5 @@
       when: ansible_os_family == 'Archlinux'
 
     - name: Remount root filesystem as read-only
-      command: mount -o remount,ro /
+      command: ro /
       when: ansible_os_family == 'Archlinux'
