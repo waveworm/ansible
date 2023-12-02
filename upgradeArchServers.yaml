@@ -1,6 +1,6 @@
 ---
 - name: Upgrade Arch Linux
-  hosts: arch_server
+  hosts: all
   tasks:
     - name: Remount root filesystem as read-write
       command: rw /
