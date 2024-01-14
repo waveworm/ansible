@@ -3,7 +3,7 @@
   hosts: all
   become: yes  # This line ensures tasks are run with root privileges
   tasks:
-   -  name: Update packages with apt
+    - name: Update packages with apt
       when: ansible_pkg_mgr == 'apt'
       apt:
         update_cache: yes
