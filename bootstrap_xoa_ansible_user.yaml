@@ -1,0 +1,78 @@
+---
+- name: Bootstrap ansible user for Xen Orchestra upgrades
+  hosts: xoaHosts
+  become: yes
+  gather_facts: false
+  serial: 1
+
+  vars:
+    ansible_user_name: ansible
+    ansible_home: /home/ansible
+    xo_repo_dir: /home/ansible/XenOrchestraInstallerUpdater
+    ansible_pubkey: "ssh-ed25519 AAAA_YOUR_PUBLIC_KEY_HERE"
+
+  tasks:
+    - name: Ensure required packages are installed
+      raw: |
+        apt-get update -y &&
+        apt-get install -y sudo git
+      changed_when: false
+
+    - name: Create ansible user
+      user:
+        name: "{{ ansible_user_name }}"
+        shell: /bin/bash
+        create_home: yes
+        home: "{{ ansible_home }}"
+
+    - name: Create .ssh directory
+      file:
+        path: "{{ ansible_home }}/.ssh"
+        state: directory
+        owner: "{{ ansible_user_name }}"
+        group: "{{ ansible_user_name }}"
+        mode: "0700"
+
+    - name: Install SSH authorized key
+      authorized_key:
+        user: "{{ ansible_user_name }}"
+        key: "{{ ansible_pubkey }}"
+
+    - name: Allow ansible user to run Xen Orchestra updater as root (NOPASSWD)
+      copy:
+        dest: /etc/sudoers.d/ansible-xoa
+        owner: root
+        group: root
+        mode: "0440"
+        content: |
+          ansible ALL=(root) NOPASSWD: /usr/bin/git
+          ansible ALL=(root) NOPASSWD: {{ xo_repo_dir }}/xo-install.sh
+
+    - name: Ensure ansible owns home directory
+      file:
+        path: "{{ ansible_home }}"
+        owner: "{{ ansible_user_name }}"
+        group: "{{ ansible_user_name }}"
+        recurse: yes
+
+    - name: Clone XenOrchestraInstallerUpdater repo (initial)
+      become_user: ansible
+      git:
+        repo: https://github.com/ronivay/XenOrchestraInstallerUpdater.git
+        dest: "{{ xo_repo_dir }}"
+        version: master
+        update: yes
+
+    - name: Verify sudo access works (non-interactive)
+      become_user: ansible
+      raw: "sudo -n true"
+      changed_when: false
+
+    - name: Summary
+      debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "ansible user created"
+          - "SSH key installed"
+          - "XOIU repo present at {{ xo_repo_dir }}"
+          - "Passwordless sudo verified"
