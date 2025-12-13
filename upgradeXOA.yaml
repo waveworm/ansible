@@ -1,0 +1,43 @@
+---
+- name: Upgrade Xen Orchestra (XOIU Update)
+  hosts: all
+  gather_facts: false
+  serial: 1
+
+  vars:
+    xo_dir: "/home/{{ ansible_user | default('jim') }}/XenOrchestraInstallerUpdater"
+
+  tasks:
+    - name: Quick connectivity check
+      raw: "echo CONNECTED $(hostname) && whoami"
+      register: conn
+      changed_when: false
+
+    - name: Ensure XenOrchestraInstallerUpdater directory exists
+      raw: "test -d '{{ xo_dir }}' && echo OK || (echo 'MISSING {{ xo_dir }}' && exit 2)"
+      register: dircheck
+      changed_when: false
+
+    - name: Git pull XOIU
+      raw: "cd '{{ xo_dir }}' && sudo -n git pull"
+      register: pull_out
+      changed_when: "'Already up to date.' not in (pull_out.stdout | default(''))"
+      failed_when: pull_out.rc != 0
+
+    # Run "Update" choice (2) non-interactively.
+    # Using printf + pipe is the simplest way to feed the menu selection.
+    - name: Run xo-install.sh Update (option 2)
+      raw: "cd '{{ xo_dir }}' && printf '2\n' | sudo -n ./xo-install.sh"
+      register: xo_update
+      failed_when: xo_update.rc != 0
+      changed_when: true
+
+    - name: Summary
+      debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "git pull rc: {{ pull_out.rc | default('n/a') }}"
+          - "update rc: {{ xo_update.rc | default('n/a') }}"
+          - "git pull tail: {{ (pull_out.stdout | default('')).splitlines()[-10:] }}"
+          - "update tail: {{ (xo_update.stdout | default('')).splitlines()[-20:] }}"
+          - "update err tail: {{ (xo_update.stderr | default('')).splitlines()[-10:] }}"
