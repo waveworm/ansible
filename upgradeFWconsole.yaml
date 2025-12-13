@@ -2,11 +2,7 @@
 - name: FreePBX - fwconsole ma updateall (weekly)
   hosts: all
   gather_facts: false
-
-  # Good safety defaults for maintenance windows
-  serial: 1                 # do one PBX at a time (avoids surprises)
-  any_errors_fatal: false
-  strategy: linear
+  serial: 1
 
   tasks:
     - name: Confirm fwconsole exists
@@ -15,30 +11,16 @@
       changed_when: false
       failed_when: has_fwconsole.rc != 0
 
-    # Optional: quick snapshot of installed module state before/after
-    - name: Show module list (pre)
-      raw: "fwconsole ma list"
-      register: pre_list
-      changed_when: false
-      failed_when: false
-
-    - name: Run module updates
-      raw: "fwconsole ma updateall"
+    - name: Run module updates (no python required, w/ timeout)
+      raw: "LC_ALL=C LANG=C timeout 1800 fwconsole ma updateall"
       register: update_out
-      changed_when: true
       failed_when: update_out.rc != 0
+      changed_when: "'Up to date.' not in (update_out.stdout | default(''))"
 
-    - name: Show module list (post)
-      raw: "fwconsole ma list"
-      register: post_list
-      changed_when: false
-      failed_when: false
-
-    # Log a concise summary per host in the job output
     - name: Summary
       debug:
         msg:
           - "Host: {{ inventory_hostname }}"
           - "update rc: {{ update_out.rc | default('n/a') }}"
-          - "update stdout (tail): {{ (update_out.stdout | default('') ).splitlines()[-20:] }}"
-          - "update stderr (tail): {{ (update_out.stderr | default('') ).splitlines()[-20:] }}"
+          - "stdout tail: {{ (update_out.stdout | default('')).splitlines()[-20:] }}"
+          - "stderr tail: {{ (update_out.stderr | default('')).splitlines()[-20:] }}"
