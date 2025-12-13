@@ -1,9 +1,14 @@
 ---
 - name: Run fwconsole ma updateall on all machines
   hosts: all
-  become: yes
+  gather_facts: false
+
   tasks:
-    - name: Execute fwconsole command to update all modules
-      command: fwconsole ma updateall
-      args:
-        warn: false
+    - name: Run fwconsole module updates (no python required)
+      raw: fwconsole ma updateall
+      register: fwconsole_out
+      changed_when: false
+
+    - name: Show fwconsole output
+      debug:
+        var: fwconsole_out.stdout_lines
