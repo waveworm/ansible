@@ -3,6 +3,7 @@
   hosts: all
   gather_facts: false
   serial: 1
+  any_errors_fatal: false
 
   tasks:
     - name: Confirm yum exists
@@ -10,32 +11,41 @@
       register: has_yum
       changed_when: false
       failed_when: has_yum.rc != 0
-      check_mode: no
 
-    - name: Check active calls (skip updates if any calls)
-      raw: 'asterisk -rx "core show channels count" 2>/dev/null | head -n 1 || true'
-      register: calls_out
+    - name: Show available updates (pre)
+      raw: "yum -q check-update || true"
+      register: yum_pre
       changed_when: false
-      check_mode: no
+      failed_when: false
 
-    - name: Parse active call count
-      set_fact:
-        active_calls: "{{ (calls_out.stdout | regex_search('([0-9]+) active call', '\\1')) | default('0') | int }}"
-      changed_when: false
-
-    - name: Show active calls
-      debug:
-        msg: "Active calls on {{ inventory_hostname }}: {{ active_calls }}"
-
-    - name: Run yum update (timeout 30 min) ONLY if no active calls
-      raw: "LC_ALL=C LANG=C timeout 1800 yum -y update"
+    - name: Run yum update (with timeout)
+      raw: |
+        if command -v timeout >/dev/null 2>&1; then
+          LC_ALL=C LANG=C timeout 1800 yum -y update
+        else
+          echo "WARNING: timeout not installed; running yum without timeout"
+          LC_ALL=C LANG=C yum -y update
+        fi
       register: yum_update
       failed_when: yum_update.rc not in [0, 100]
       changed_when: yum_update.rc == 100
-      when: active_calls == 0
-      check_mode: no
 
-    - name: Skip notice (calls in progress)
+    - name: Check if reboot is required (best-effort)
+      raw: |
+        if command -v needs-restarting >/dev/null 2>&1; then
+          needs-restarting -r >/dev/null 2>&1 && echo REBOOT_REQUIRED || echo NO_REBOOT
+        else
+          echo UNKNOWN
+        fi
+      register: reboot_check
+      changed_when: false
+      failed_when: false
+
+    - name: Summary
       debug:
-        msg: "Skipping yum update on {{ inventory_hostname }} because active_calls={{ active_calls }}"
-      when: active_calls > 0
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "yum rc: {{ yum_update.rc | default('n/a') }}"
+          - "Reboot needed: {{ reboot_check.stdout | default('unknown') }}"
+          - "stdout tail: {{ (yum_update.stdout | default('')).splitlines()[-15:] }}"
+          - "stderr tail: {{ (yum_update.stderr | default('')).splitlines()[-15:] }}"
