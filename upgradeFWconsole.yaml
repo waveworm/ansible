@@ -1,14 +1,44 @@
 ---
-- name: Run fwconsole ma updateall on all machines
+- name: FreePBX - fwconsole ma updateall (weekly)
   hosts: all
   gather_facts: false
 
-  tasks:
-    - name: Run fwconsole module updates (no python required)
-      raw: fwconsole ma updateall
-      register: fwconsole_out
-      changed_when: false
+  # Good safety defaults for maintenance windows
+  serial: 1                 # do one PBX at a time (avoids surprises)
+  any_errors_fatal: false
+  strategy: linear
 
-    - name: Show fwconsole output
+  tasks:
+    - name: Confirm fwconsole exists
+      raw: "command -v fwconsole"
+      register: has_fwconsole
+      changed_when: false
+      failed_when: has_fwconsole.rc != 0
+
+    # Optional: quick snapshot of installed module state before/after
+    - name: Show module list (pre)
+      raw: "fwconsole ma list"
+      register: pre_list
+      changed_when: false
+      failed_when: false
+
+    - name: Run module updates
+      raw: "fwconsole ma updateall"
+      register: update_out
+      changed_when: true
+      failed_when: update_out.rc != 0
+
+    - name: Show module list (post)
+      raw: "fwconsole ma list"
+      register: post_list
+      changed_when: false
+      failed_when: false
+
+    # Log a concise summary per host in the job output
+    - name: Summary
       debug:
-        var: fwconsole_out.stdout_lines
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "update rc: {{ update_out.rc | default('n/a') }}"
+          - "update stdout (tail): {{ (update_out.stdout | default('') ).splitlines()[-20:] }}"
+          - "update stderr (tail): {{ (update_out.stderr | default('') ).splitlines()[-20:] }}"
