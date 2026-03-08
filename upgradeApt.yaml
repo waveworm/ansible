@@ -1,28 +1,71 @@
 ---
 - name: Update and upgrade apt packages
   hosts: all
-  become: yes  # This line ensures tasks are run with root privileges
+  gather_facts: false
+  serial: 1
+  vars:
+    ansible_ssh_common_args: "-o ControlMaster=no -o ControlPersist=no -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+    disk_warn_percent: 85
   tasks:
-    - name: Update packages with apt
-      when: ansible_pkg_mgr == 'apt'
-      apt:
-        update_cache: yes
-      become: yes
+    - name: Quick connectivity check
+      raw: "echo CONNECTED $(hostname) && whoami && sudo -n whoami"
+      changed_when: false
 
-    - name: Update packages with yum
-      when: ansible_pkg_mgr == 'yum'
-      yum:
-        name: '*'
-        state: latest
+    - name: apt-get update (non-interactive)
+      raw: "sudo -n env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update -y"
+      changed_when: false
 
-    - name: Upgrade packages with apt
-      when: ansible_pkg_mgr == 'apt'
-      apt:
-        upgrade: dist
+    - name: apt-get dist-upgrade (non-interactive)
+      raw: "sudo -n env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' dist-upgrade -y"
+      changed_when: false
 
-    - name: Upgrade packages with yum
-      when: ansible_pkg_mgr == 'yum'
-      yum:
-        name: '*'
-        state: latest
-        exclude: kernel*
+    - name: apt-get autoremove
+      raw: "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y"
+      changed_when: false
+
+    - name: apt-get autoclean
+      raw: "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get autoclean -y"
+      changed_when: false
+
+    - name: Check root disk usage percent
+      raw: "df -P / | awk 'NR==2{gsub(/%/,\"\",$5); print $5}'"
+      register: disk_root_pct
+      changed_when: false
+
+    - name: Flag low disk space on root filesystem
+      debug:
+        msg: "DISK WARNING: root filesystem is {{ disk_root_pct.stdout | default('unknown') }}% used (threshold {{ disk_warn_percent }}%)"
+      when: (disk_root_pct.stdout | int) >= (disk_warn_percent | int)
+
+    - name: Check whether reboot is required
+      raw: "if [ -f /var/run/reboot-required ]; then echo REBOOT_REQUIRED; else echo NO_REBOOT; fi"
+      register: reboot_check
+      changed_when: false
+
+    - name: Reboot host when required
+      raw: "sudo -n nohup bash -c 'sleep 2; /sbin/reboot' >/dev/null 2>&1 &"
+      when: "'REBOOT_REQUIRED' in (reboot_check.stdout | default(''))"
+      changed_when: true
+
+    - name: Wait for SSH to return after reboot
+      wait_for:
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        port: 22
+        delay: 10
+        timeout: 300
+      delegate_to: localhost
+      become: false
+      when: "'REBOOT_REQUIRED' in (reboot_check.stdout | default(''))"
+
+    - name: Verify host after reboot
+      raw: "echo POST_REBOOT $(hostname) && whoami"
+      changed_when: false
+      when: "'REBOOT_REQUIRED' in (reboot_check.stdout | default(''))"
+
+    - name: Final host summary
+      debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Disk root usage percent: {{ disk_root_pct.stdout | default('unknown') }}"
+          - "Disk warning threshold: {{ disk_warn_percent }}"
+          - "Reboot required before reboot step: {{ 'REBOOT_REQUIRED' in (reboot_check.stdout | default('')) }}"
